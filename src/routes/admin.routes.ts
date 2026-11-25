@@ -8,10 +8,11 @@ import config from '../config';
 import * as catalogo from '../services/catalogo.service';
 import * as usuarios from '../services/usuarios.service';
 import { requiereSesion, requiereRol } from '../middleware/auth';
-import type { Usuario } from '../tipos';
+import type { Rol, Usuario } from '../tipos';
 
 const router = express.Router();
 const MAX_UPLOAD_BYTES = 700 * 1024;
+const ROLES_PERMITIDOS: readonly Rol[] = ['admin', 'barista', 'mozo', 'cliente'];
 const MIME_POR_EXTENSION: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -62,10 +63,6 @@ router.get('/usuarios', async (req, res, next) => {
 
 /**
  * PUT /api/admin/usuarios/:id
- *
- * FALLA — Asignación masiva: se actualiza cualquier campo que llegue en el
- * cuerpo, incluido el `rol`. Un usuario con rol "cliente" puede mandarse
- * `{"rol": "admin"}` y convertirse en administrador.
  */
 router.put('/usuarios/:id', async (req, res, next) => {
   try {
@@ -73,7 +70,15 @@ router.put('/usuarios/:id', async (req, res, next) => {
     const cambios: Partial<Usuario> = {};
     if (username !== undefined) cambios.username = username;
     if (nombre !== undefined) cambios.nombre = nombre;
-    if (rol !== undefined) cambios.rol = rol;
+    if (rol !== undefined) {
+      const rolValidado = typeof rol === 'string'
+        ? ROLES_PERMITIDOS.find((rolPermitido) => rolPermitido === rol)
+        : undefined;
+      if (!rolValidado) {
+        return res.status(400).json({ error: 'Rol no válido.' });
+      }
+      cambios.rol = rolValidado;
+    }
     if (password !== undefined) cambios.password = password;
 
     const usuario = await usuarios.actualizar(req.params.id, cambios);
