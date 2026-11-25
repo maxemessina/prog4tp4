@@ -1,34 +1,57 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { exec } from 'child_process';
+import { randomUUID } from 'crypto';
+import { spawn } from 'child_process';
 
 import config from '../config';
 import * as catalogo from '../services/catalogo.service';
 import * as usuarios from '../services/usuarios.service';
 import { requiereSesion, requiereRol } from '../middleware/auth';
-import type { Usuario } from '../tipos';
+import type { Rol, Usuario } from '../tipos';
 
 const router = express.Router();
+const MAX_UPLOAD_BYTES = 700 * 1024;
+const SERVIDORES_PERMITIDOS = new Set(['127.0.0.1', 'localhost', 'proveedor.origen.com']);
+const ROLES_PERMITIDOS: readonly Rol[] = ['admin', 'barista', 'mozo', 'cliente'];
+const MIME_POR_EXTENSION: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+};
+
+function detectarMimeImagen(buffer: Buffer): string | null {
+  if (
+    buffer.length >= 8 &&
+    buffer.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
+  ) {
+    return 'image/png';
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  return null;
+}
 
 /**
  * Rutas del panel de administración.
  *
  * -----------------------------------------------------------------------------
- * FALLA — Autorización ausente / escalada de privilegios (OWASP A01:2021)
+ * Autorización del panel (OWASP A01:2021)
  * -----------------------------------------------------------------------------
- * Se exige estar autenticado, pero NO se comprueba el rol: `requiereRol` está
- * importado y no se usa. Cualquier usuario autenticado (incluso con rol
- * "cliente") entra al panel y puede:
- *   - crear, editar y BORRAR productos,
- *   - cambiar contraseñas,
- *   - dar de alta usuarios y cambiarles el rol (escalada de privilegios),
- *   - ejecutar comandos en el servidor.
- *
- * Corrección: `router.use(requiereRol('admin'))` sobre las rutas sensibles.
+ * Las rutas del panel requieren sesión y el rol admin.
  * -----------------------------------------------------------------------------
  */
 router.use(requiereSesion);
+router.use(requiereRol('admin'));
 
 /** GET /api/admin/usuarios */
 router.get('/usuarios', async (req, res, next) => {
@@ -41,10 +64,6 @@ router.get('/usuarios', async (req, res, next) => {
 
 /**
  * PUT /api/admin/usuarios/:id
- *
- * FALLA — Asignación masiva: se actualiza cualquier campo que llegue en el
- * cuerpo, incluido el `rol`. Un usuario con rol "cliente" puede mandarse
- * `{"rol": "admin"}` y convertirse en administrador.
  */
 router.put('/usuarios/:id', async (req, res, next) => {
   try {
@@ -52,7 +71,15 @@ router.put('/usuarios/:id', async (req, res, next) => {
     const cambios: Partial<Usuario> = {};
     if (username !== undefined) cambios.username = username;
     if (nombre !== undefined) cambios.nombre = nombre;
-    if (rol !== undefined) cambios.rol = rol;
+    if (rol !== undefined) {
+      const rolValidado = typeof rol === 'string'
+        ? ROLES_PERMITIDOS.find((rolPermitido) => rolPermitido === rol)
+        : undefined;
+      if (!rolValidado) {
+        return res.status(400).json({ error: 'Rol no válido.' });
+      }
+      cambios.rol = rolValidado;
+    }
     if (password !== undefined) cambios.password = password;
 
     const usuario = await usuarios.actualizar(req.params.id, cambios);
@@ -135,28 +162,41 @@ router.post('/cambiar-contrasena', async (req, res, next) => {
  * POST /api/admin/probar-conexion
  *
  * -----------------------------------------------------------------------------
- * FALLA — Inyección de comandos del sistema operativo (OWASP A03:2021)
+ * Prueba de conexión con lista blanca y sin shell (OWASP A03:2021)
  * -----------------------------------------------------------------------------
- * La dirección del proveedor se mete dentro de una cadena de shell.
- * Como `exec` launches /bin/sh -c, los operadores del shell (|, ;, &&, $())
- * se interpretan y permiten ejecutar comandos arbitrarios en el contenedor.
- *
- * Corrección: validar el host contra una LISTA BLANCA y ejecutar el proceso
- * con `spawn('ping', ['-c', '3', host], { shell: false })`, sin pasar por el
- * shell.
+ * Sólo se permiten destinos conocidos y ping recibe argumentos separados,
+ * sin interpretar la entrada mediante un shell.
  * -----------------------------------------------------------------------------
  */
 router.post('/probar-conexion', (req, res) => {
   const { host } = req.body || {};
 
-  // FALLA: entrada de usuario concatenada en un comando de shell.
-  const comando = `ping -c 3 ${host}`;
+  if (typeof host !== 'string' || !SERVIDORES_PERMITIDOS.has(host)) {
+    return res.status(400).json({ error: 'Servidor no permitido.' });
+  }
 
-  exec(comando, (error, stdout, stderr) => {
+  const argumentos = ['-c', '3', host];
+  const proceso = spawn('ping', argumentos, { shell: false });
+  let salida = '';
+  let errorSalida = '';
+
+  proceso.stdout.on('data', (fragmento) => {
+    salida += fragmento.toString();
+  });
+  proceso.stderr.on('data', (fragmento) => {
+    errorSalida += fragmento.toString();
+  });
+  proceso.on('error', (error) => {
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  proceso.on('close', (codigo) => {
+    if (res.headersSent) return;
     res.json({
-      comando,
-      salida: stdout,
-      error: stderr || (error ? error.message : null),
+      comando: `ping ${argumentos.join(' ')}`,
+      salida,
+      error: errorSalida || (codigo === 0 ? null : `ping finalizó con código ${codigo}`),
     });
   });
 });
@@ -165,37 +205,55 @@ router.post('/probar-conexion', (req, res) => {
  * POST /api/admin/subir-archivo
  *
  * -----------------------------------------------------------------------------
- * FALLA — Carga de archivos sin restricciones (OWASP A04:2021)
+ * Carga de imágenes con validación en servidor (OWASP A04:2021)
  * -----------------------------------------------------------------------------
- * No se valida la extensión, el tipo MIME ni el tamaño del archivo, y se
- * guarda con el nombre que manda el cliente (además sin sanitizar "../", lo
- * que permite escribir fuera de la carpeta de subidas). Los archivos subidos
- * se sirven con express.static desde el mismo origen.
- *
- * Corrección: validar extensión contra lista blanca (.png/.jpg/.svg saneado),
- * verificar el tipo MIME real, limitar el tamaño, generar un nombre aleatorio
- * y guardar fuera del árbol web.
+ * Sólo se admiten imágenes PNG, JPEG y WebP que coincidan con su magic number.
+ * Se limita el tamaño y se genera el nombre del archivo en el servidor.
  * -----------------------------------------------------------------------------
  */
 router.post('/subir-archivo', express.json({ limit: '8mb' }), (req, res, next) => {
   try {
     const { nombre, contenidoBase64 } = req.body || {};
 
-    if (!nombre || !contenidoBase64) {
+    if (
+      typeof nombre !== 'string' ||
+      typeof contenidoBase64 !== 'string' ||
+      !nombre.trim() ||
+      !contenidoBase64
+    ) {
       return res.status(400).json({ error: 'Falta el archivo.' });
     }
 
-    // FALLA: sin validación de extensión, MIME ni tamaño.
+    const extension = path.extname(nombre).toLowerCase();
+    const mimeEsperado = Object.prototype.hasOwnProperty.call(MIME_POR_EXTENSION, extension)
+      ? MIME_POR_EXTENSION[extension]
+      : undefined;
+    if (!mimeEsperado) {
+      return res.status(400).json({ error: 'Sólo se permiten imágenes PNG, JPG y WebP.' });
+    }
+
+    const maxBase64Length = Math.ceil(MAX_UPLOAD_BYTES / 3) * 4;
+    if (contenidoBase64.length > maxBase64Length) {
+      return res.status(413).json({ error: 'El archivo supera el tamaño máximo de 700 KB.' });
+    }
+
     const buffer = Buffer.from(contenidoBase64, 'base64');
+    if (!buffer.length || buffer.length > MAX_UPLOAD_BYTES) {
+      return res.status(413).json({ error: 'El archivo supera el tamaño máximo de 700 KB o está vacío.' });
+    }
+    if (detectarMimeImagen(buffer) !== mimeEsperado) {
+      return res.status(400).json({ error: 'El contenido del archivo no coincide con su extensión.' });
+    }
+
     fs.mkdirSync(config.uploadsDir, { recursive: true });
 
-    // FALLA: nombre tomado del cliente sin sanear (path traversal).
-    const destino = path.join(config.uploadsDir, nombre);
+    const nombreGenerado = `${randomUUID()}${extension}`;
+    const destino = path.join(config.uploadsDir, nombreGenerado);
     fs.writeFileSync(destino, buffer);
 
     res.json({
       mensaje: 'Archivo subido.',
-      url: `/uploads/${nombre}`,
+      url: `/uploads/${nombreGenerado}`,
       bytes: buffer.length,
     });
   } catch (err) {
