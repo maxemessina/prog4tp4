@@ -1,5 +1,6 @@
 import * as db from '../db';
 import type { Usuario } from '../tipos';
+import bcrypt from 'bcryptjs';
 
 /**
  * Servicio de usuarios.
@@ -38,11 +39,15 @@ export async function buscarPorUsername(username: string): Promise<Usuario | nul
  * Devuelve el usuario o null.
  */
 export async function autenticar(username: string, password: string): Promise<Usuario | null> {
-  const { rows } = await db.query<Usuario>(
-    'SELECT * FROM usuarios WHERE username = $1 AND password = $2',
-    [username, password]
-  );
-  return rows[0] || null;
+  const usuario = await buscarPorUsername(username);
+  if (!usuario) {
+    return null;
+  }
+  const passwordValida = await bcrypt.compare(password, usuario.password);
+  if (!passwordValida) {
+    return null;
+  }
+  return usuario;
 }
 
 /** Lista todos los usuarios (para el panel de administración). */
@@ -76,9 +81,12 @@ export async function actualizar(id: number | string, cambios: Partial<Usuario>)
 
 /** Cambia la contraseña de un usuario (se guarda en texto plano). */
 export async function cambiarPassword(id: number, nuevaPassword: string): Promise<Usuario | null> {
+  const passwordHash = await bcrypt.hash(nuevaPassword, 10);
+
   const { rows } = await db.query<Usuario>(
     'UPDATE usuarios SET password = $1 WHERE id = $2 RETURNING *',
-    [nuevaPassword, id]
+    [passwordHash, id]
   );
+
   return rows[0] || null;
 }
