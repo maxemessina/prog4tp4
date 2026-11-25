@@ -20,9 +20,13 @@ router.post('/', async (req, res, next) => {
     const { mesa, cliente, items } = req.body || {};
     const pedido = await pedidos.crear({ mesa, cliente, items });
     res.status(201).json(pedido);
-  } catch (err) {
-    next(err);
+} catch (err) {
+  if (err instanceof Error && err.name === 'ValidationError') {
+    return res.status(400).json({ error: err.message });
   }
+
+  next(err);
+}
 });
 
 /**
@@ -68,9 +72,9 @@ router.patch('/:id/estado', async (req, res, next) => {
       return res.status(404).json({ error: 'Pedido no encontrado.' });
     }
     res.json(pedido);
-  } catch (err) {
-    next(err);
-  }
+   } catch (err) {
+  next(err);
+}
 });
 
 export default router;
