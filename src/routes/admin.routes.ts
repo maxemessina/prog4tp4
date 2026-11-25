@@ -1,8 +1,8 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
-import { exec } from "child_process";
-
+import { spawn } from "child_process";
+import { isIP } from "net";
 import config from "../config";
 import * as catalogo from "../services/catalogo.service";
 import * as usuarios from "../services/usuarios.service";
@@ -150,14 +150,48 @@ router.post("/cambiar-contrasena", async (req, res, next) => {
 router.post("/probar-conexion", (req, res) => {
   const { host } = req.body || {};
 
-  // FALLA: entrada de usuario concatenada en un comando de shell.
-  const comando = `ping -c 3 ${host}`;
+  if (typeof host !== "string" || host.length === 0 || host.length > 253) {
+    return res.status(400).json({ error: "Host inválido." });
+  }
+  const esIP = isIP(host) !== 0;
 
-  exec(comando, (error, stdout, stderr) => {
+  const esDominio =
+    /^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(?:\.(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))*$/.test(
+      host,
+    );
+
+  if (!esIP && !esDominio) {
+    return res.status(400).json({ error: "Host inválido." });
+  }
+
+  const proceso = spawn("ping", ["-c", "3", host], {
+    shell: false,
+  });
+
+  let salida = "";
+  let errorSalida = "";
+
+  proceso.stdout.on("data", (datos) => {
+    salida += datos.toString();
+  });
+
+  proceso.stderr.on("data", (datos) => {
+    errorSalida += datos.toString();
+  });
+
+  proceso.on("error", (error) => {
+    res.status(500).json({
+      error: "No se pudo ejecutar la prueba de conexión.",
+    });
+  });
+
+  proceso.on("close", (codigo) => {
+    if (res.headersSent) return;
+
     res.json({
-      comando,
-      salida: stdout,
-      error: stderr || (error ? error.message : null),
+      host,
+      salida,
+      error: errorSalida || (codigo !== 0 ? "Falló la conexión." : null),
     });
   });
 });
