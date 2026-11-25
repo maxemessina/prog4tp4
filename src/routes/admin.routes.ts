@@ -1,6 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import { exec } from 'child_process';
 
 import config from '../config';
@@ -10,6 +11,33 @@ import { requiereSesion, requiereRol } from '../middleware/auth';
 import type { Usuario } from '../tipos';
 
 const router = express.Router();
+const MAX_UPLOAD_BYTES = 700 * 1024;
+const MIME_POR_EXTENSION: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+};
+
+function detectarMimeImagen(buffer: Buffer): string | null {
+  if (
+    buffer.length >= 8 &&
+    buffer.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
+  ) {
+    return 'image/png';
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  return null;
+}
 
 /**
  * Rutas del panel de administración.
@@ -165,37 +193,55 @@ router.post('/probar-conexion', (req, res) => {
  * POST /api/admin/subir-archivo
  *
  * -----------------------------------------------------------------------------
- * FALLA — Carga de archivos sin restricciones (OWASP A04:2021)
+ * Carga de imágenes con validación en servidor (OWASP A04:2021)
  * -----------------------------------------------------------------------------
- * No se valida la extensión, el tipo MIME ni el tamaño del archivo, y se
- * guarda con el nombre que manda el cliente (además sin sanitizar "../", lo
- * que permite escribir fuera de la carpeta de subidas). Los archivos subidos
- * se sirven con express.static desde el mismo origen.
- *
- * Corrección: validar extensión contra lista blanca (.png/.jpg/.svg saneado),
- * verificar el tipo MIME real, limitar el tamaño, generar un nombre aleatorio
- * y guardar fuera del árbol web.
+ * Sólo se admiten imágenes PNG, JPEG y WebP que coincidan con su magic number.
+ * Se limita el tamaño y se genera el nombre del archivo en el servidor.
  * -----------------------------------------------------------------------------
  */
 router.post('/subir-archivo', express.json({ limit: '8mb' }), (req, res, next) => {
   try {
     const { nombre, contenidoBase64 } = req.body || {};
 
-    if (!nombre || !contenidoBase64) {
+    if (
+      typeof nombre !== 'string' ||
+      typeof contenidoBase64 !== 'string' ||
+      !nombre.trim() ||
+      !contenidoBase64
+    ) {
       return res.status(400).json({ error: 'Falta el archivo.' });
     }
 
-    // FALLA: sin validación de extensión, MIME ni tamaño.
+    const extension = path.extname(nombre).toLowerCase();
+    const mimeEsperado = Object.prototype.hasOwnProperty.call(MIME_POR_EXTENSION, extension)
+      ? MIME_POR_EXTENSION[extension]
+      : undefined;
+    if (!mimeEsperado) {
+      return res.status(400).json({ error: 'Sólo se permiten imágenes PNG, JPG y WebP.' });
+    }
+
+    const maxBase64Length = Math.ceil(MAX_UPLOAD_BYTES / 3) * 4;
+    if (contenidoBase64.length > maxBase64Length) {
+      return res.status(413).json({ error: 'El archivo supera el tamaño máximo de 700 KB.' });
+    }
+
     const buffer = Buffer.from(contenidoBase64, 'base64');
+    if (!buffer.length || buffer.length > MAX_UPLOAD_BYTES) {
+      return res.status(413).json({ error: 'El archivo supera el tamaño máximo de 700 KB o está vacío.' });
+    }
+    if (detectarMimeImagen(buffer) !== mimeEsperado) {
+      return res.status(400).json({ error: 'El contenido del archivo no coincide con su extensión.' });
+    }
+
     fs.mkdirSync(config.uploadsDir, { recursive: true });
 
-    // FALLA: nombre tomado del cliente sin sanear (path traversal).
-    const destino = path.join(config.uploadsDir, nombre);
+    const nombreGenerado = `${randomUUID()}${extension}`;
+    const destino = path.join(config.uploadsDir, nombreGenerado);
     fs.writeFileSync(destino, buffer);
 
     res.json({
       mensaje: 'Archivo subido.',
-      url: `/uploads/${nombre}`,
+      url: `/uploads/${nombreGenerado}`,
       bytes: buffer.length,
     });
   } catch (err) {
