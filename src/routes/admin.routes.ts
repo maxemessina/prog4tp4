@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { exec } from 'child_process';
+import { spawn } from 'child_process';
 
 import config from '../config';
 import * as catalogo from '../services/catalogo.service';
@@ -12,6 +12,7 @@ import type { Rol, Usuario } from '../tipos';
 
 const router = express.Router();
 const MAX_UPLOAD_BYTES = 700 * 1024;
+const SERVIDORES_PERMITIDOS = new Set(['127.0.0.1', 'localhost', 'proveedor.origen.com']);
 const ROLES_PERMITIDOS: readonly Rol[] = ['admin', 'barista', 'mozo', 'cliente'];
 const MIME_POR_EXTENSION: Record<string, string> = {
   '.jpg': 'image/jpeg',
@@ -161,28 +162,41 @@ router.post('/cambiar-contrasena', async (req, res, next) => {
  * POST /api/admin/probar-conexion
  *
  * -----------------------------------------------------------------------------
- * FALLA — Inyección de comandos del sistema operativo (OWASP A03:2021)
+ * Prueba de conexión con lista blanca y sin shell (OWASP A03:2021)
  * -----------------------------------------------------------------------------
- * La dirección del proveedor se mete dentro de una cadena de shell.
- * Como `exec` launches /bin/sh -c, los operadores del shell (|, ;, &&, $())
- * se interpretan y permiten ejecutar comandos arbitrarios en el contenedor.
- *
- * Corrección: validar el host contra una LISTA BLANCA y ejecutar el proceso
- * con `spawn('ping', ['-c', '3', host], { shell: false })`, sin pasar por el
- * shell.
+ * Sólo se permiten destinos conocidos y ping recibe argumentos separados,
+ * sin interpretar la entrada mediante un shell.
  * -----------------------------------------------------------------------------
  */
 router.post('/probar-conexion', (req, res) => {
   const { host } = req.body || {};
 
-  // FALLA: entrada de usuario concatenada en un comando de shell.
-  const comando = `ping -c 3 ${host}`;
+  if (typeof host !== 'string' || !SERVIDORES_PERMITIDOS.has(host)) {
+    return res.status(400).json({ error: 'Servidor no permitido.' });
+  }
 
-  exec(comando, (error, stdout, stderr) => {
+  const argumentos = ['-c', '3', host];
+  const proceso = spawn('ping', argumentos, { shell: false });
+  let salida = '';
+  let errorSalida = '';
+
+  proceso.stdout.on('data', (fragmento) => {
+    salida += fragmento.toString();
+  });
+  proceso.stderr.on('data', (fragmento) => {
+    errorSalida += fragmento.toString();
+  });
+  proceso.on('error', (error) => {
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  proceso.on('close', (codigo) => {
+    if (res.headersSent) return;
     res.json({
-      comando,
-      salida: stdout,
-      error: stderr || (error ? error.message : null),
+      comando: `ping ${argumentos.join(' ')}`,
+      salida,
+      error: errorSalida || (codigo === 0 ? null : `ping finalizó con código ${codigo}`),
     });
   });
 });
