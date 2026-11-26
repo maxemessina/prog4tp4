@@ -4,23 +4,13 @@ import type { FiltrosCatalogo } from '../services/catalogo.service';
 
 const router = express.Router();
 
-/**
- * GET /api/productos?tipo=&variedad=&q=
- * Lista el catálogo con filtros opcionales.
- *
- * FALLA — Inyección SQL: los filtros llegan concatenados al texto SQL
- * (ver services/catalogo.service.ts).
- *
- * FALLA — XSS reflejado: la respuesta incluye los filtros que mandó el
- * cliente y el sitio web los pinta con innerHTML. Un `<script>` en `q` se
- * ejecuta en el navegador de quien hizo la búsqueda.
- */
+// Lista el catálogo con filtros opcionales.
+// Los filtros se muestran como texto seguro en el cliente.
 router.get('/', async (req, res, next) => {
   try {
     const productos = await catalogo.listar(req.query as FiltrosCatalogo);
     res.json({
       productos,
-      // Se devuelve el eco de los filtros: es el vector del XSS reflejado.
       filtros: {
         tipo: req.query.tipo || '',
         variedad: req.query.variedad || '',
@@ -33,7 +23,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-/** GET /api/productos/variedades */
+// Devuelve las variedades de café disponibles.
 router.get('/variedades', async (req, res, next) => {
   try {
     res.json({ variedades: await catalogo.variedades() });
@@ -42,21 +32,21 @@ router.get('/variedades', async (req, res, next) => {
   }
 });
 
-/**
- * GET /api/productos/:id
- * Devuelve un producto.
- *
- * FALLA — Inyección SQL en el id (el id se mete en la consulta entre comillas).
- * FALLA — XSS reflejado: el mensaje de error incluye el id recibido.
- */
+// Se valida el identificador del producto y se muestran mensajes de error genéricos.
 router.get('/:id', async (req, res, next) => {
   try {
-    const producto = await catalogo.obtener(req.params.id);
-    if (!producto) {
-      return res
-        .status(404)
-        .json({ error: `No existe el producto "${req.params.id}".` });
+    const id = Number(req.params.id);
+
+    if (!Number.isSafeInteger(id) || id <= 0 || id > 2147483647) {
+      return res.status(400).json({ error: 'ID de producto inválido.' });
     }
+
+    const producto = await catalogo.obtener(String(id));
+
+    if (!producto) {
+      return res.status(404).json({ error: 'Producto no encontrado.' });
+    }
+
     res.json(producto);
   } catch (err) {
     next(err);
