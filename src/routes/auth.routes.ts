@@ -31,9 +31,9 @@ router.post("/login", async (req, res, next) => {
     const usuario = await usuarios.autenticar(username, password);
 
     if (!usuario) {
-      return res
-        .status(401)
-        .json({ error: `El usuario "${username}" no existe en el sistema.` });
+      return res.status(401).json({
+        error: "Usuario o contraseña incorrectos.",
+      });
     }
 
     crearSesion(req, res, {
