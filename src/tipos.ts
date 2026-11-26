@@ -60,6 +60,7 @@ export interface Sesion {
   usuario: UsuarioSesion;
   creadaEn: number;
   expiraEn: number | null;
+  csrfToken: string;
 }
 
 /** Fila de la tabla `pedidos`. */

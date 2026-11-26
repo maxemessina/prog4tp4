@@ -93,8 +93,7 @@ export async function patchConToken(agenteHttp: Agente, url: string, cuerpo?: Cu
 /** DELETE con token anti-CSRF si existe. */
 export async function deleteConToken(agenteHttp: Agente, url: string) {
   const token = await tokenCsrf(agenteHttp);
-  const urlConToken = token ? `${url}?_csrf=${encodeURIComponent(token)}` : url;
-  return agenteHttp.delete(urlConToken);
+  return agenteHttp.delete(url).set('X-CSRF-Token', token || '');
 }
 
 /** Inicia sesión con un usuario de prueba. */

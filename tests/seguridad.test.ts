@@ -38,6 +38,7 @@ import {
   agente,
   prepararBase,
   login,
+  postConToken,
   productoPorNombre,
   crearUsuarioDePrueba,
   cookieCruda,
@@ -136,7 +137,13 @@ function valorSid(cookie: string): string | null {
  * se perdería y los tests medirían la cosa equivocada.
  */
 async function autenticar(username: string, password: string) {
-  const res = await request(app).post('/api/auth/login').send({ username, password });
+  const info = await obtenerTokenCsrf(conSesion(''));
+  assert.ok(info, 'No se pudo obtener el token CSRF para iniciar sesión.');
+  const res = await request(app)
+    .post('/api/auth/login')
+    .set('Cookie', info.cookies)
+    .set('X-CSRF-Token', info.token)
+    .send({ username, password });
   return { res, cookies: cookiesDe(res), sid: valorSid(cookieCruda(res)) };
 }
 
@@ -333,10 +340,88 @@ describe('Seguridad · CSRF', () => {
     const conToken = await conSesion(unirCookies(cookies, info.cookies))
       .post('/api/pedidos', Object.assign({}, cuerpoPedido, { _csrf: info.token }))
       .set('X-CSRF-Token', info.token);
-    assert.ok(
-      conToken.status < 500,
-      `La API devolvió ${conToken.status} al enviar el token: revisá la verificación.`
-    );
+    assert.equal(conToken.status, 201, 'El pedido con token válido debe crearse.');
+  });
+
+  test('el token pertenece a la sesión y se rechazan orígenes ajenos', async () => {
+    await crearUsuarioDePrueba('sec_csrf_sesion', 'Sec_Clave_2024!', 'admin');
+    const primera = await autenticar('sec_csrf_sesion', 'Sec_Clave_2024!');
+    const segunda = await autenticar('sec_csrf_sesion', 'Sec_Clave_2024!');
+    const info = await obtenerTokenCsrf(conSesion(primera.cookies));
+    assert.ok(info);
+
+    const tokenDeOtraSesion = await conSesion(segunda.cookies)
+      .post('/api/admin/cambiar-contrasena', {})
+      .set('X-CSRF-Token', info.token);
+    assert.equal(tokenDeOtraSesion.status, 403);
+
+    const origenAjeno = await conSesion(primera.cookies)
+      .post('/api/admin/cambiar-contrasena', {})
+      .set('X-CSRF-Token', info.token)
+      .set('Origin', 'https://otro-origen.example');
+    assert.equal(origenAjeno.status, 403);
+
+    const refererAjeno = await conSesion(primera.cookies)
+      .post('/api/admin/cambiar-contrasena', {})
+      .set('X-CSRF-Token', info.token)
+      .set('Referer', 'https://otro-origen.example/pagina');
+    assert.equal(refererAjeno.status, 403);
+
+    const valida = await conSesion(primera.cookies)
+      .post('/api/admin/cambiar-contrasena', {})
+      .set('X-CSRF-Token', info.token);
+    assert.equal(valida.status, 400);
+  });
+
+  test('los demás endpoints indicados rechazan peticiones sin token', async () => {
+    await crearUsuarioDePrueba('sec_csrf_rutas', 'Sec_Clave_2024!', 'admin');
+    const { res, cookies } = await autenticar('sec_csrf_rutas', 'Sec_Clave_2024!');
+    assert.equal(res.status, 200);
+    const http = conSesion(cookies);
+
+    for (const peticion of [
+      () => http.post('/api/comentarios'),
+      () => http.post('/api/admin/productos'),
+      () => http.put('/api/admin/productos/0'),
+      () => http.delete('/api/admin/productos/0'),
+      () => http.post('/api/admin/cambiar-contrasena'),
+    ]) {
+      const respuesta = await peticion();
+      assert.equal(respuesta.status, 403);
+      assert.equal(respuesta.body.error, 'Token CSRF inválido o ausente.');
+    }
+  });
+
+  test('las demás operaciones de escritura exigen un token válido', async () => {
+    const loginSinToken = await request(app)
+      .post('/api/auth/login')
+      .send({ username: 'inexistente', password: 'incorrecta' });
+    assert.equal(loginSinToken.status, 403);
+    assert.equal(loginSinToken.body.error, 'Token CSRF inválido o ausente.');
+
+    await crearUsuarioDePrueba('sec_csrf_adicional', 'Sec_Clave_2024!', 'admin');
+    const { res, cookies } = await autenticar('sec_csrf_adicional', 'Sec_Clave_2024!');
+    assert.equal(res.status, 200);
+    const info = await obtenerTokenCsrf(conSesion(cookies));
+    assert.ok(info);
+    const http = conSesion(unirCookies(cookies, info.cookies));
+
+    const rutas = [
+      { sinToken: () => http.patch('/api/pedidos/0/estado'), conToken: () => http.patch('/api/pedidos/0/estado', { estado: 'listo' }), esperado: 404 },
+      { sinToken: () => http.delete('/api/comentarios/0'), conToken: () => http.delete('/api/comentarios/0'), esperado: 404 },
+      { sinToken: () => http.put('/api/admin/usuarios/0'), conToken: () => http.put('/api/admin/usuarios/0'), esperado: 404 },
+      { sinToken: () => http.post('/api/admin/subir-archivo'), conToken: () => http.post('/api/admin/subir-archivo'), esperado: 400 },
+      { sinToken: () => http.post('/api/admin/probar-conexion'), conToken: () => http.post('/api/admin/probar-conexion'), esperado: 400 },
+      { sinToken: () => http.post('/api/auth/logout'), conToken: () => http.post('/api/auth/logout'), esperado: 200 },
+    ];
+
+    for (const ruta of rutas) {
+      const sinToken = await ruta.sinToken();
+      assert.equal(sinToken.status, 403);
+      assert.equal(sinToken.body.error, 'Token CSRF inválido o ausente.');
+      const conToken: request.Response = await ruta.conToken().set('X-CSRF-Token', info.token);
+      assert.equal(conToken.status, ruta.esperado);
+    }
   });
 });
 
@@ -356,7 +441,7 @@ describe('Seguridad · Validación de entrada', () => {
 
   test('no se aceptan cantidades negativas', async () => {
     const producto = await productoPorNombre('Espresso Pocillo Colombia');
-    const res = await agente().post('/api/pedidos').send({
+    const res = await postConToken(agente(), '/api/pedidos', {
       mesa: '1',
       cliente: MARCA_PRUEBA,
       items: [{ productoId: producto.id, cantidad: -5 }],
@@ -383,7 +468,7 @@ describe('Seguridad · Validación de entrada', () => {
 
   test('no se aceptan cantidades no numéricas', async () => {
     const producto = await productoPorNombre('Espresso Pocillo Colombia');
-    const res = await agente().post('/api/pedidos').send({
+    const res = await postConToken(agente(), '/api/pedidos', {
       mesa: '1',
       cliente: MARCA_PRUEBA,
       items: [{ productoId: producto.id, cantidad: 'muchos' }],
@@ -402,8 +487,20 @@ describe('Seguridad · Validación de entrada', () => {
     }
   });
 
+  test('se rechazan los items de pedido que no son objetos válidos', async () => {
+    for (const item of [null, 'producto', []]) {
+      const res = await postConToken(agente(), '/api/pedidos', {
+        mesa: '1',
+        cliente: MARCA_PRUEBA,
+        items: [item],
+      });
+      assert.equal(res.status, 400);
+      assert.equal(res.body.error, 'El producto solicitado no es válido.');
+    }
+  });
+
   test('no se aceptan reseñas sin límite de longitud', async () => {
-    const res = await agente().post('/api/comentarios').send({
+    const res = await postConToken(agente(), '/api/comentarios', {
       autor: MARCA_PRUEBA,
       texto: 'A'.repeat(5000),
       calificacion: 5,
@@ -504,9 +601,7 @@ describe('Seguridad · Autenticación y sesiones', () => {
 
   test('la cookie de sesión lleva HttpOnly, Secure y SameSite', async () => {
     await crearUsuarioDePrueba('sec_cookie', 'Sec_Clave_2024!', 'barista');
-    const res = await request(app)
-      .post('/api/auth/login')
-      .send({ username: 'sec_cookie', password: 'Sec_Clave_2024!' });
+    const { res } = await autenticar('sec_cookie', 'Sec_Clave_2024!');
 
     const cookie = cookieCruda(res);
     assert.ok(/HttpOnly/i.test(cookie), `La cookie de sesión no tiene HttpOnly: ${cookie}`);
@@ -534,9 +629,7 @@ describe('Seguridad · Autenticación y sesiones', () => {
 
     const ids = [];
     for (let i = 0; i < 3; i++) {
-      const res = await request(app)
-        .post('/api/auth/login')
-        .send({ username: 'sec_sid', password: 'Sec_Clave_2024!' });
+      const { res } = await autenticar('sec_sid', 'Sec_Clave_2024!');
       ids.push(valorSid(cookieCruda(res)));
     }
 
@@ -605,8 +698,11 @@ describe('Seguridad · Autenticación y sesiones', () => {
 
     const { cookies } = await autenticar('sec_escalada', 'Sec_Clave_2024!');
     const http = conSesion(cookies);
-
-    await http.put(`/api/admin/usuarios/${id}`, { rol: 'admin' });
+    const info = await obtenerTokenCsrf(http);
+    assert.ok(info);
+    const intento = await http.put(`/api/admin/usuarios/${id}`, { rol: 'admin' })
+      .set('X-CSRF-Token', info.token);
+    assert.equal(intento.status, 403);
 
     const { rows } = await db.query('SELECT rol FROM usuarios WHERE username = $1', ['sec_escalada']);
     assert.equal(
@@ -698,7 +794,7 @@ describe('Seguridad · Configuración y exposición de información', () => {
   });
 
   test('la API NO devuelve stack traces al cliente', async () => {
-    const res = await agente().post('/api/pedidos').send({
+    const res = await postConToken(agente(), '/api/pedidos', {
       mesa: '1',
       cliente: 'Prueba',
       items: [{ productoId: 999999, cantidad: 1 }],

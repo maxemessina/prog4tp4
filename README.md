@@ -156,6 +156,11 @@ cafeteria-origen/
 | — | `/api/admin/*` | Panel (usuarios, productos, conexión, subida de archivos) |
 | GET | `/api/_diagnostico` | Diagnóstico del servidor |
 
+Para las solicitudes POST, PUT, PATCH y DELETE de la API, obtené un token con
+`GET /api/csrf-token` y envialo en `X-CSRF-Token` o `_csrf`, conservando las
+cookies. Después de iniciar o cerrar sesión, obtené un token nuevo. El sitio web
+lo hace automáticamente.
+
 ### Reglas de negocio
 
 `total de un pedido = Σ (calcularPrecio(producto) × cantidad)`
