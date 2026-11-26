@@ -7,11 +7,9 @@
  * 1. El identificador de sesión es un contador incremental (`sesion_1`,
  *    `sesion_2`, ...): es PREDECIBLE y adivinable. Un atacante puede recorrer
  *    los valores y usurpar la sesión de otro usuario (fijación de sesión).
- * 2. La cookie se emite SIN `httpOnly` (JavaScript puede leerla) y SIN `secure`
- *    (viaja en texto plano por HTTP).
- * 3. Las sesiones NO expiran nunca.
- * 4. Al iniciar sesión no se regenera el identificador.
- * 5. El cierre de sesión sólo borra la cookie del cliente: la sesión sigue
+ * 2. Las sesiones NO expiran nunca.
+ * 3. Al iniciar sesión no se regenera el identificador.
+ * 4. El cierre de sesión sólo borra la cookie del cliente: la sesión sigue
  *    viva en el servidor.
  *
  * Corrección: usar crypto.randomUUID() (o crypto.randomBytes -> hex) para el
@@ -24,6 +22,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
 
+import config from '../config';
 import type { Sesion, UsuarioSesion } from '../tipos';
 
 export const sesiones = new Map<string, Sesion>();
@@ -64,8 +63,12 @@ export function crearSesion(req: Request, res: Response, usuario: UsuarioSesion)
     csrfToken: randomBytes(32).toString('hex'),
   });
 
-  // FALLA: cookie sin httpOnly / secure.
-  res.cookie('sid', id, { path: '/', sameSite: 'lax' });
+  res.cookie('sid', id, {
+    path: '/',
+    httpOnly: true,
+    secure: config.nodeEnv === 'production',
+    sameSite: 'lax',
+  });
 
   return id;
 }
