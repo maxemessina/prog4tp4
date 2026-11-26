@@ -1,5 +1,6 @@
 import express from 'express';
 import * as comentarios from '../services/comentarios.service';
+import { verificarCsrf } from '../middleware/sesion';
 
 const router = express.Router();
 
@@ -18,10 +19,9 @@ router.get('/', async (req, res, next) => {
 /**
  * POST /api/comentarios
  *
- * FALLAS: sin token anti-CSRF, sin validación de longitud/rango y sin
- * sanitización (XSS almacenado).
+ * FALLAS: sin validación de longitud/rango y sin sanitización (XSS almacenado).
  */
-router.post('/', async (req, res, next) => {
+router.post('/', verificarCsrf, async (req, res, next) => {
   try {
     const { autor, texto, calificacion } = req.body || {};
     const comentario = await comentarios.crear({

@@ -8,6 +8,7 @@ import config from '../config';
 import * as catalogo from '../services/catalogo.service';
 import * as usuarios from '../services/usuarios.service';
 import { requiereSesion, requiereRol } from '../middleware/auth';
+import { verificarCsrf } from '../middleware/sesion';
 import type { Rol, Usuario } from '../tipos';
 
 const router = express.Router();
@@ -93,7 +94,7 @@ router.put("/usuarios/:id", async (req, res, next) => {
 });
 
 /** POST /api/admin/productos — alta de producto. */
-router.post("/productos", async (req, res, next) => {
+router.post("/productos", verificarCsrf, async (req, res, next) => {
   try {
     const producto = await catalogo.crear(req.body || {});
     res.status(201).json(producto);
@@ -109,7 +110,7 @@ router.post("/productos", async (req, res, next) => {
 });
 
 /** PUT /api/admin/productos/:id */
-router.put("/productos/:id", async (req, res, next) => {
+router.put("/productos/:id", verificarCsrf, async (req, res, next) => {
   try {
     const producto = await catalogo.actualizar(req.params.id, req.body || {});
     if (!producto) {
@@ -123,11 +124,8 @@ router.put("/productos/:id", async (req, res, next) => {
 
 /**
  * DELETE /api/admin/productos/:id
- *
- * FALLA — CSRF: la petición que borra un producto no lleva ningún token y se
- * acepta con un simple GET/POST desde cualquier origen.
  */
-router.delete("/productos/:id", async (req, res, next) => {
+router.delete("/productos/:id", verificarCsrf, async (req, res, next) => {
   try {
     const producto = await catalogo.eliminar(req.params.id);
     if (!producto) {
@@ -142,10 +140,10 @@ router.delete("/productos/:id", async (req, res, next) => {
 /**
  * POST /api/admin/cambiar-contrasena
  *
- * FALLAS: sin token anti-CSRF, sin límite de intentos, y la contraseña nueva
- * se guarda en texto plano.
+ * FALLAS: sin límite de intentos, y la contraseña nueva se guarda en texto
+ * plano.
  */
-router.post("/cambiar-contrasena", async (req, res, next) => {
+router.post("/cambiar-contrasena", verificarCsrf, async (req, res, next) => {
   try {
     const { nueva } = req.body || {};
     if (!nueva) {

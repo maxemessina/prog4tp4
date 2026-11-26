@@ -156,6 +156,10 @@ cafeteria-origen/
 | — | `/api/admin/*` | Panel (usuarios, productos, conexión, subida de archivos) |
 | GET | `/api/_diagnostico` | Diagnóstico del servidor |
 
+Para crear pedidos o reseñas, administrar productos o cambiar la contraseña,
+obtené un token con `GET /api/csrf-token` y envialo en `X-CSRF-Token` o `_csrf`,
+conservando las cookies. El sitio web lo hace automáticamente.
+
 ### Reglas de negocio
 
 `total de un pedido = Σ (calcularPrecio(producto) × cantidad)`

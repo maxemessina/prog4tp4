@@ -4,6 +4,7 @@ import helmet from 'helmet';
 
 import config from './config';
 import { rutaNoEncontrada, manejadorErrores } from './middleware/errores';
+import { entregarTokenCsrf } from './middleware/sesion';
 import authRoutes from './routes/auth.routes';
 import productosRoutes from './routes/productos.routes';
 import pedidosRoutes from './routes/pedidos.routes';
@@ -38,6 +39,8 @@ app.use('/uploads', express.static(config.uploadsDir));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- API --------------------------------------------------------------------
+app.get('/api/csrf-token', entregarTokenCsrf);
+
 app.get('/api/salud', (req, res) => {
   res.json({ ok: true, servicio: 'cafeteria-origen', hora: new Date().toISOString() });
 });
