@@ -6,6 +6,7 @@
 
   var API = "/api";
   var CARRITO_KEY = "origen.carrito";
+  var solicitudToken = null;
 
   var estado = {
     tipo: "",
@@ -25,7 +26,24 @@
   }
 
   function api(url, opciones) {
-    return fetch(API + url, opciones).then(function (res) {
+    var requiereCsrf = opciones && ['POST', 'PUT', 'PATCH', 'DELETE'].indexOf(opciones.method) !== -1;
+    var peticion;
+    if (requiereCsrf) {
+      if (!solicitudToken) {
+        solicitudToken = fetch(API + '/csrf-token', { cache: 'no-store' }).then(function (res) {
+          if (!res.ok) throw new Error('No se pudo obtener el token CSRF.');
+          return res.json();
+        }).finally(function () { solicitudToken = null; });
+      }
+      peticion = solicitudToken.then(function (datos) {
+        var cabeceras = new Headers(opciones.headers || {});
+        cabeceras.set('X-CSRF-Token', datos.token);
+        return fetch(API + url, Object.assign({}, opciones, { headers: cabeceras }));
+      });
+    } else {
+      peticion = fetch(API + url, opciones);
+    }
+    return peticion.then(function (res) {
       return res
         .json()
         .catch(function () {

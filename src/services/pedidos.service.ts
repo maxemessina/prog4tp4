@@ -18,23 +18,29 @@ export interface NuevoPedido {
 /** Id tal como llega en la URL (texto) o ya convertido. */
 type Id = number | string;
 
-/**
- * Servicio de pedidos.
- *
- * -----------------------------------------------------------------------------
- * FALLA — Validación de entrada débil o insuficiente (OWASP A04:2021)
- * -----------------------------------------------------------------------------
- * No se valida nada de lo que llega en el cuerpo de la petición:
- *  - `cantidad` puede ser negativa (el total del pedido queda negativo),
- *    cero, un número decimal o un texto.
- *  - No hay un máximo de items ni de cantidad (DoS / facturas absurdas).
- *  - `mesa` y `cliente` no se validan ni se acotan en longitud.
- *  - Si el productoId no existe, la excepción sube y se filtra el stack.
- *
- * La corrección es validar TIPO (entero), RANGO (1..N), LONGITUD y FORMATO
- * de cada campo en el servidor, usando listas blancas.
- * -----------------------------------------------------------------------------
- */
+function validarItemPedido(item: ItemPedido): void {
+  if (typeof item !== "object" || item === null || Array.isArray(item)) {
+    const error = new Error("El producto solicitado no es válido.");
+    error.name = "ValidationError";
+    throw error;
+  }
+
+  if (
+    !Number.isInteger(item.cantidad) ||
+    item.cantidad < 1 ||
+    item.cantidad > 100
+  ) {
+    const error = new Error("La cantidad debe ser un entero entre 1 y 100.");
+    error.name = "ValidationError";
+    throw error;
+  }
+
+  if (!Number.isInteger(item.productoId) || item.productoId <= 0) {
+    const error = new Error("El producto solicitado no es válido.");
+    error.name = "ValidationError";
+    throw error;
+  }
+}
 
 /**
  * Crea un pedido a partir de una lista de items { productoId, cantidad }.
@@ -84,21 +90,7 @@ export async function crear({
   }[] = [];
 
   for (const item of items) {
-    if (
-      !Number.isInteger(item.cantidad) ||
-      item.cantidad < 1 ||
-      item.cantidad > 100
-    ) {
-      const error = new Error("La cantidad debe ser un entero entre 1 y 100.");
-      error.name = "ValidationError";
-      throw error;
-    }
-
-    if (!Number.isInteger(item.productoId) || item.productoId <= 0) {
-      const error = new Error("El producto solicitado no es válido.");
-      error.name = "ValidationError";
-      throw error;
-    }
+    validarItemPedido(item);
 
     const producto = await buscarProducto(item.productoId);
 

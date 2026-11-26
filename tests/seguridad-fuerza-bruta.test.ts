@@ -16,9 +16,7 @@
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import request from 'supertest';
-
-import { app, prepararBase, crearUsuarioDePrueba, limpiarDatosDePrueba } from './helpers';
+import { agente, login, prepararBase, crearUsuarioDePrueba, limpiarDatosDePrueba } from './helpers';
 
 describe('Seguridad · Fuerza bruta', () => {
   before(async () => {
@@ -36,11 +34,10 @@ describe('Seguridad · Fuerza bruta', () => {
     const INTENTOS = 10;
     let bloqueado = false;
     let statusBloqueo = null;
+    const http = agente();
 
     for (let i = 0; i < INTENTOS; i++) {
-      const res = await request(app)
-        .post('/api/auth/login')
-        .send({ username: 'sec_brute', password: `intento-fallido-${i}` });
+      const res = await login(http, 'sec_brute', `intento-fallido-${i}`);
 
       if (res.status !== 401) {
         bloqueado = true;
@@ -55,18 +52,16 @@ describe('Seguridad · Fuerza bruta', () => {
         '(fuerza bruta ilimitada). Aplicá rate limiting con express-rate-limit sobre /api/auth/login.'
     );
     assert.ok(
-      statusBloqueo === 429 || statusBloqueo === 403 || statusBloqueo === 423,
-      `El bloqueo respondió ${statusBloqueo}; se espera 429 (Too Many Requests), 403 o 423 (Locked).`
+      statusBloqueo === 429,
+      `El bloqueo respondió ${statusBloqueo}; se espera 429 (Too Many Requests).`
     );
   });
 
   test('el login correcto sigue funcionando después de un bloqueo', async () => {
-    const res = await request(app)
-      .post('/api/auth/login')
-      .send({ username: 'sec_brute', password: 'Sec_Clave_2024!' });
+    const res = await login(agente(), 'sec_brute', 'Sec_Clave_2024!');
 
     assert.ok(
-      res.status === 200 || res.status === 429 || res.status === 403 || res.status === 423,
+      res.status === 200 || res.status === 429,
       `El login con contraseña correcta respondió ${res.status}.`
     );
   });

@@ -1,5 +1,6 @@
 import express from 'express';
 import * as pedidos from '../services/pedidos.service';
+import { verificarCsrf } from '../middleware/sesion';
 
 const router = express.Router();
 
@@ -8,14 +9,11 @@ const router = express.Router();
  * Crea un pedido y devuelve su total calculado.
  *
  * FALLAS:
- *  - CSRF: no hay token anti-CSRF ni verificación de Origin/Referer, y la
- *    cookie de sesión no tiene SameSite. Una página externa puede POSTear
- *    con las cookies de la víctima.
  *  - Validación de entrada débil: no se valida tipo, rango ni longitud de
  *    `cantidad`, `mesa`, `cliente` ni de la lista de items.
  *  - No requiere autenticación ni rol.
  */
-router.post('/', async (req, res, next) => {
+router.post('/', verificarCsrf, async (req, res, next) => {
   try {
     const { mesa, cliente, items } = req.body || {};
     const pedido = await pedidos.crear({ mesa, cliente, items });
@@ -62,7 +60,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 /** PATCH /api/pedidos/:id/estado */
-router.patch('/:id/estado', async (req, res, next) => {
+router.patch('/:id/estado', verificarCsrf, async (req, res, next) => {
   try {
     const { estado } = req.body || {};
     // FALLA: no se valida el valor de `estado` (cualquier texto se acepta)
