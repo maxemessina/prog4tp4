@@ -223,21 +223,59 @@ router.post(
         return res.status(400).json({ error: "Falta el archivo." });
       }
 
-      // FALLA: sin validación de extensión, MIME ni tamaño.
+      // Validar extensión.
+      const extension = path.extname(nombre).toLowerCase();
+      const extensionesPermitidas = [".jpg", ".jpeg", ".png", ".webp"];
+
+      if (!extensionesPermitidas.includes(extension)) {
+        return res.status(400).json({ error: "Tipo de archivo no permitido" });
+      }
+
+      // Evitar path traversal.
+      if (path.basename(nombre) !== nombre) {
+        return res.status(400).json({ error: "Nombre de archivo inválido" });
+      }
+
       const buffer = Buffer.from(contenidoBase64, "base64");
+
+      // Validar tamaño máximo de 5 MB.
+      if (buffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({
+          error: "El archivo supera el tamaño máximo permitido",
+        });
+      }
+
+      // Validar el contenido real del archivo.
+      const esImagen =
+        ((extension === ".jpg" || extension === ".jpeg") &&
+          buffer[0] === 0xff &&
+          buffer[1] === 0xd8) ||
+        (extension === ".png" &&
+          buffer
+            .subarray(0, 4)
+            .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) ||
+        (extension === ".webp" && buffer.toString("ascii", 8, 12) === "WEBP");
+
+      if (!esImagen) {
+        return res.status(400).json({
+          error: "El contenido del archivo no coincide con su extensión",
+        });
+      }
+
       fs.mkdirSync(config.uploadsDir, { recursive: true });
 
-      // FALLA: nombre tomado del cliente sin sanear (path traversal).
-      const destino = path.join(config.uploadsDir, nombre);
+      // Generar un nombre seguro del lado del servidor.
+      const nombreSeguro = `${Date.now()}-${Math.random().toString(36).slice(2)}${extension}`;
+      const destino = path.join(config.uploadsDir, nombreSeguro);
+
       fs.writeFileSync(destino, buffer);
 
-      res.json({
-        mensaje: "Archivo subido.",
-        url: `/uploads/${nombre}`,
-        bytes: buffer.length,
+      return res.json({
+        mensaje: "Archivo subido correctamente",
+        nombre: nombreSeguro,
       });
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   },
 );
