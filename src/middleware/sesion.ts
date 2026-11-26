@@ -4,12 +4,8 @@
  * -----------------------------------------------------------------------------
  * FALLA — Gestión de sesiones insegura (Autenticación insegura)
  * -----------------------------------------------------------------------------
- * 1. El identificador de sesión es un contador incremental (`sesion_1`,
- *    `sesion_2`, ...): es PREDECIBLE y adivinable. Un atacante puede recorrer
- *    los valores y usurpar la sesión de otro usuario (fijación de sesión).
- * 2. Las sesiones NO expiran nunca.
- * 3. Al iniciar sesión no se regenera el identificador.
- * 4. El cierre de sesión sólo borra la cookie del cliente: la sesión sigue
+ * 1. Las sesiones NO expiran nunca.
+ * 2. El cierre de sesión sólo borra la cookie del cliente: la sesión sigue
  *    viva en el servidor.
  *
  * Corrección: usar crypto.randomUUID() (o crypto.randomBytes -> hex) para el
@@ -26,7 +22,6 @@ import config from '../config';
 import type { Sesion, UsuarioSesion } from '../tipos';
 
 export const sesiones = new Map<string, Sesion>();
-let contadorSesiones = 0;
 const claveAnonima = randomBytes(32);
 
 function tokenAnonimo(valor: string): string {
@@ -50,10 +45,8 @@ export function leerCookies(req: Request): Record<string, string> {
 
 /** Crea una sesión nueva para el usuario y setea la cookie. */
 export function crearSesion(req: Request, res: Response, usuario: UsuarioSesion): string {
-  contadorSesiones += 1;
-
-  // FALLA: identificador predecible.
-  const id = `sesion_${contadorSesiones}`;
+  destruirSesion(req);
+  const id = randomBytes(32).toString('hex');
 
   // FALLA: la sesión nunca expira.
   sesiones.set(id, {
