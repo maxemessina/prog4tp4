@@ -6,6 +6,7 @@ import {
   crearSesion,
   destruirSesion,
   obtenerSesion,
+  verificarCsrf,
 } from "../middleware/sesion";
 
 const router = express.Router();
@@ -42,7 +43,7 @@ const limitePorCuenta = rateLimit({
  *    incorrecta" → enumeración de usuarios.
  *  - El identificador de sesión no se regenera (fijación de sesión).
  */
-router.post("/login", limitePorIp, limitePorCuenta, async (req, res, next) => {
+router.post("/login", verificarCsrf, limitePorIp, limitePorCuenta, async (req, res, next) => {
   try {
     const { username, password } = req.body || {};
 
@@ -86,7 +87,7 @@ router.post("/login", limitePorIp, limitePorCuenta, async (req, res, next) => {
  * FALLA: sólo borra la cookie del navegador. La sesión sigue existiendo en el
  * servidor, así que con la cookie robada se puede seguir usando.
  */
-router.post("/logout", (req, res) => {
+router.post("/logout", verificarCsrf, (req, res) => {
   destruirSesion(req);
   res.clearCookie("sid", { path: "/" });
   res.json({ mensaje: "Sesión cerrada." });

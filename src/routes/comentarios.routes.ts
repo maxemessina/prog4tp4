@@ -46,7 +46,7 @@ router.post('/', verificarCsrf, async (req, res, next) => {
 });
 
 /** DELETE /api/comentarios/:id */
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', verificarCsrf, async (req, res, next) => {
   try {
     // FALLA: sin verificación de rol — cualquiera puede borrar reseñas.
     const comentario = await comentarios.eliminar(req.params.id);

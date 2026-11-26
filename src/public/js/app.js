@@ -26,8 +26,7 @@
   }
 
   function api(url, opciones) {
-    var requiereCsrf = opciones && opciones.method === 'POST' &&
-      (url === '/pedidos' || url === '/comentarios');
+    var requiereCsrf = opciones && ['POST', 'PUT', 'PATCH', 'DELETE'].indexOf(opciones.method) !== -1;
     var peticion;
     if (requiereCsrf) {
       if (!solicitudToken) {

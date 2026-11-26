@@ -137,7 +137,13 @@ function valorSid(cookie: string): string | null {
  * se perdería y los tests medirían la cosa equivocada.
  */
 async function autenticar(username: string, password: string) {
-  const res = await request(app).post('/api/auth/login').send({ username, password });
+  const info = await obtenerTokenCsrf(conSesion(''));
+  assert.ok(info, 'No se pudo obtener el token CSRF para iniciar sesión.');
+  const res = await request(app)
+    .post('/api/auth/login')
+    .set('Cookie', info.cookies)
+    .set('X-CSRF-Token', info.token)
+    .send({ username, password });
   return { res, cookies: cookiesDe(res), sid: valorSid(cookieCruda(res)) };
 }
 
@@ -385,6 +391,38 @@ describe('Seguridad · CSRF', () => {
       assert.equal(respuesta.body.error, 'Token CSRF inválido o ausente.');
     }
   });
+
+  test('las demás operaciones de escritura exigen un token válido', async () => {
+    const loginSinToken = await request(app)
+      .post('/api/auth/login')
+      .send({ username: 'inexistente', password: 'incorrecta' });
+    assert.equal(loginSinToken.status, 403);
+    assert.equal(loginSinToken.body.error, 'Token CSRF inválido o ausente.');
+
+    await crearUsuarioDePrueba('sec_csrf_adicional', 'Sec_Clave_2024!', 'admin');
+    const { res, cookies } = await autenticar('sec_csrf_adicional', 'Sec_Clave_2024!');
+    assert.equal(res.status, 200);
+    const info = await obtenerTokenCsrf(conSesion(cookies));
+    assert.ok(info);
+    const http = conSesion(unirCookies(cookies, info.cookies));
+
+    const rutas = [
+      { sinToken: () => http.patch('/api/pedidos/0/estado'), conToken: () => http.patch('/api/pedidos/0/estado', { estado: 'listo' }), esperado: 404 },
+      { sinToken: () => http.delete('/api/comentarios/0'), conToken: () => http.delete('/api/comentarios/0'), esperado: 404 },
+      { sinToken: () => http.put('/api/admin/usuarios/0'), conToken: () => http.put('/api/admin/usuarios/0'), esperado: 404 },
+      { sinToken: () => http.post('/api/admin/subir-archivo'), conToken: () => http.post('/api/admin/subir-archivo'), esperado: 400 },
+      { sinToken: () => http.post('/api/admin/probar-conexion'), conToken: () => http.post('/api/admin/probar-conexion'), esperado: 400 },
+      { sinToken: () => http.post('/api/auth/logout'), conToken: () => http.post('/api/auth/logout'), esperado: 200 },
+    ];
+
+    for (const ruta of rutas) {
+      const sinToken = await ruta.sinToken();
+      assert.equal(sinToken.status, 403);
+      assert.equal(sinToken.body.error, 'Token CSRF inválido o ausente.');
+      const conToken: request.Response = await ruta.conToken().set('X-CSRF-Token', info.token);
+      assert.equal(conToken.status, ruta.esperado);
+    }
+  });
 });
 
 /* ========================== 4. VALIDACIÓN ========================== */
@@ -551,9 +589,7 @@ describe('Seguridad · Autenticación y sesiones', () => {
 
   test('la cookie de sesión lleva HttpOnly, Secure y SameSite', async () => {
     await crearUsuarioDePrueba('sec_cookie', 'Sec_Clave_2024!', 'barista');
-    const res = await request(app)
-      .post('/api/auth/login')
-      .send({ username: 'sec_cookie', password: 'Sec_Clave_2024!' });
+    const { res } = await autenticar('sec_cookie', 'Sec_Clave_2024!');
 
     const cookie = cookieCruda(res);
     assert.ok(/HttpOnly/i.test(cookie), `La cookie de sesión no tiene HttpOnly: ${cookie}`);
@@ -581,9 +617,7 @@ describe('Seguridad · Autenticación y sesiones', () => {
 
     const ids = [];
     for (let i = 0; i < 3; i++) {
-      const res = await request(app)
-        .post('/api/auth/login')
-        .send({ username: 'sec_sid', password: 'Sec_Clave_2024!' });
+      const { res } = await autenticar('sec_sid', 'Sec_Clave_2024!');
       ids.push(valorSid(cookieCruda(res)));
     }
 
@@ -652,7 +686,11 @@ describe('Seguridad · Autenticación y sesiones', () => {
 
     const { cookies } = await autenticar('sec_escalada', 'Sec_Clave_2024!');
     const http = conSesion(cookies);
-    await http.put(`/api/admin/usuarios/${id}`, { rol: 'admin' });
+    const info = await obtenerTokenCsrf(http);
+    assert.ok(info);
+    const intento = await http.put(`/api/admin/usuarios/${id}`, { rol: 'admin' })
+      .set('X-CSRF-Token', info.token);
+    assert.equal(intento.status, 403);
 
     const { rows } = await db.query('SELECT rol FROM usuarios WHERE username = $1', ['sec_escalada']);
     assert.equal(

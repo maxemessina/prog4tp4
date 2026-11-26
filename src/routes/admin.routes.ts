@@ -66,7 +66,7 @@ router.get("/usuarios", async (req, res, next) => {
 /**
  * PUT /api/admin/usuarios/:id
  */
-router.put("/usuarios/:id", async (req, res, next) => {
+router.put("/usuarios/:id", verificarCsrf, async (req, res, next) => {
   try {
     const { username, nombre, rol, password } = req.body || {};
     const cambios: Partial<Usuario> = {};
@@ -168,7 +168,7 @@ router.post("/cambiar-contrasena", verificarCsrf, async (req, res, next) => {
  * sin interpretar la entrada mediante un shell.
  * -----------------------------------------------------------------------------
  */
-router.post("/probar-conexion", (req, res) => {
+router.post("/probar-conexion", verificarCsrf, (req, res) => {
   const { host } = req.body || {};
 
   if (typeof host !== 'string' || !SERVIDORES_PERMITIDOS.has(host)) {
@@ -214,6 +214,7 @@ router.post("/probar-conexion", (req, res) => {
 router.post(
   "/subir-archivo",
   express.json({ limit: "8mb" }),
+  verificarCsrf,
   (req, res, next) => {
     try {
       const { nombre, contenidoBase64 } = req.body || {};

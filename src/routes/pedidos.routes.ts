@@ -60,7 +60,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 /** PATCH /api/pedidos/:id/estado */
-router.patch('/:id/estado', async (req, res, next) => {
+router.patch('/:id/estado', verificarCsrf, async (req, res, next) => {
   try {
     const { estado } = req.body || {};
     // FALLA: no se valida el valor de `estado` (cualquier texto se acepta)

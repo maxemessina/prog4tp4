@@ -55,8 +55,7 @@
 
   function api(url, opciones) {
     var metodo = opciones && opciones.method;
-    var requiereCsrf = (metodo === 'POST' && (url === '/admin/productos' || url === '/admin/cambiar-contrasena')) ||
-      ((metodo === 'PUT' || metodo === 'DELETE') && /^\/admin\/productos\/[^/]+$/.test(url));
+    var requiereCsrf = ['POST', 'PUT', 'PATCH', 'DELETE'].indexOf(metodo) !== -1;
     var peticion;
     if (requiereCsrf) {
       if (!solicitudToken) {
@@ -129,7 +128,11 @@
   }
 
   function cerrarSesion() {
-    postJSON('/auth/logout', {}).then(function () {
+    postJSON('/auth/logout', {}).then(function (resp) {
+      if (!resp.ok) {
+        alert('No se pudo cerrar sesión: ' + (resp.data.error || 'error'));
+        return;
+      }
       usuario = null;
       $('#vista-login').hidden = false;
       $('#vista-panel').hidden = true;
