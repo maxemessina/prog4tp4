@@ -54,7 +54,7 @@ router.use(requiereSesion);
 router.use(requiereRol('admin'));
 
 /** GET /api/admin/usuarios */
-router.get('/usuarios', async (req, res, next) => {
+router.get("/usuarios", async (req, res, next) => {
   try {
     res.json({ usuarios: await usuarios.listar() });
   } catch (err) {
@@ -65,7 +65,7 @@ router.get('/usuarios', async (req, res, next) => {
 /**
  * PUT /api/admin/usuarios/:id
  */
-router.put('/usuarios/:id', async (req, res, next) => {
+router.put("/usuarios/:id", async (req, res, next) => {
   try {
     const { username, nombre, rol, password } = req.body || {};
     const cambios: Partial<Usuario> = {};
@@ -84,7 +84,7 @@ router.put('/usuarios/:id', async (req, res, next) => {
 
     const usuario = await usuarios.actualizar(req.params.id, cambios);
     if (!usuario) {
-      return res.status(404).json({ error: 'Usuario no encontrado.' });
+      return res.status(404).json({ error: "Usuario no encontrado." });
     }
     res.json(usuario);
   } catch (err) {
@@ -93,25 +93,27 @@ router.put('/usuarios/:id', async (req, res, next) => {
 });
 
 /** POST /api/admin/productos — alta de producto. */
-router.post('/productos', async (req, res, next) => {
+router.post("/productos", async (req, res, next) => {
   try {
     const producto = await catalogo.crear(req.body || {});
     res.status(201).json(producto);
   } catch (err) {
     // El nombre del producto es único en la base.
-    if ((err as { code?: string }).code === '23505') {
-      return res.status(409).json({ error: 'Ya existe un producto con ese nombre.' });
+    if ((err as { code?: string }).code === "23505") {
+      return res
+        .status(409)
+        .json({ error: "Ya existe un producto con ese nombre." });
     }
     next(err);
   }
 });
 
 /** PUT /api/admin/productos/:id */
-router.put('/productos/:id', async (req, res, next) => {
+router.put("/productos/:id", async (req, res, next) => {
   try {
     const producto = await catalogo.actualizar(req.params.id, req.body || {});
     if (!producto) {
-      return res.status(404).json({ error: 'Producto no encontrado.' });
+      return res.status(404).json({ error: "Producto no encontrado." });
     }
     res.json(producto);
   } catch (err) {
@@ -125,11 +127,11 @@ router.put('/productos/:id', async (req, res, next) => {
  * FALLA — CSRF: la petición que borra un producto no lleva ningún token y se
  * acepta con un simple GET/POST desde cualquier origen.
  */
-router.delete('/productos/:id', async (req, res, next) => {
+router.delete("/productos/:id", async (req, res, next) => {
   try {
     const producto = await catalogo.eliminar(req.params.id);
     if (!producto) {
-      return res.status(404).json({ error: 'Producto no encontrado.' });
+      return res.status(404).json({ error: "Producto no encontrado." });
     }
     res.json(producto);
   } catch (err) {
@@ -143,16 +145,16 @@ router.delete('/productos/:id', async (req, res, next) => {
  * FALLAS: sin token anti-CSRF, sin límite de intentos, y la contraseña nueva
  * se guarda en texto plano.
  */
-router.post('/cambiar-contrasena', async (req, res, next) => {
+router.post("/cambiar-contrasena", async (req, res, next) => {
   try {
     const { nueva } = req.body || {};
     if (!nueva) {
-      return res.status(400).json({ error: 'Falta la contraseña nueva.' });
+      return res.status(400).json({ error: "Falta la contraseña nueva." });
     }
     // FALLA: no se valida la longitud ni la complejidad de la contraseña.
     // (`req.usuario!`: requiereSesion ya garantizó que hay un usuario.)
     const usuario = await usuarios.cambiarPassword(req.usuario!.id, nueva);
-    res.json({ mensaje: 'Contraseña actualizada.', usuario });
+    res.json({ mensaje: "Contraseña actualizada.", usuario });
   } catch (err) {
     next(err);
   }
@@ -168,7 +170,7 @@ router.post('/cambiar-contrasena', async (req, res, next) => {
  * sin interpretar la entrada mediante un shell.
  * -----------------------------------------------------------------------------
  */
-router.post('/probar-conexion', (req, res) => {
+router.post("/probar-conexion", (req, res) => {
   const { host } = req.body || {};
 
   if (typeof host !== 'string' || !SERVIDORES_PERMITIDOS.has(host)) {
@@ -211,9 +213,12 @@ router.post('/probar-conexion', (req, res) => {
  * Se limita el tamaño y se genera el nombre del archivo en el servidor.
  * -----------------------------------------------------------------------------
  */
-router.post('/subir-archivo', express.json({ limit: '8mb' }), (req, res, next) => {
-  try {
-    const { nombre, contenidoBase64 } = req.body || {};
+router.post(
+  "/subir-archivo",
+  express.json({ limit: "8mb" }),
+  (req, res, next) => {
+    try {
+      const { nombre, contenidoBase64 } = req.body || {};
 
     if (
       typeof nombre !== 'string' ||

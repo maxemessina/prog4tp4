@@ -2,20 +2,22 @@
    Cafetería Origen — lógica del sitio público
    ============================================================================= */
 (function () {
-  'use strict';
+  "use strict";
 
-  var API = '/api';
-  var CARRITO_KEY = 'origen.carrito';
+  var API = "/api";
+  var CARRITO_KEY = "origen.carrito";
 
   var estado = {
-    tipo: '',
-    variedad: '',
-    q: '',
+    tipo: "",
+    variedad: "",
+    q: "",
     carrito: cargarCarrito(),
   };
 
   /* ---------------------------------------------------------------- utils */
-  function $(sel) { return document.querySelector(sel); }
+  function $(sel) {
+    return document.querySelector(sel);
+  }
 
   function money(valor) {
     var n = Number(valor || 0);
@@ -24,16 +26,21 @@
 
   function api(url, opciones) {
     return fetch(API + url, opciones).then(function (res) {
-      return res.json().catch(function () { return {}; }).then(function (data) {
-        return { ok: res.ok, status: res.status, data: data };
-      });
+      return res
+        .json()
+        .catch(function () {
+          return {};
+        })
+        .then(function (data) {
+          return { ok: res.ok, status: res.status, data: data };
+        });
     });
   }
 
   function postJSON(url, cuerpo) {
     return api(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(cuerpo || {}),
     });
   }
@@ -41,7 +48,9 @@
   function guardarCarrito() {
     try {
       localStorage.setItem(CARRITO_KEY, JSON.stringify(estado.carrito));
-    } catch (e) { /* almacenamiento no disponible */ }
+    } catch (e) {
+      /* almacenamiento no disponible */
+    }
   }
 
   function cargarCarrito() {
@@ -55,11 +64,11 @@
   /* ------------------------------------------------------------- catálogo */
   function urlCatalogo() {
     var params = new URLSearchParams();
-    if (estado.tipo) params.set('tipo', estado.tipo);
-    if (estado.variedad) params.set('variedad', estado.variedad);
-    if (estado.q) params.set('q', estado.q);
+    if (estado.tipo) params.set("tipo", estado.tipo);
+    if (estado.variedad) params.set("variedad", estado.variedad);
+    if (estado.q) params.set("q", estado.q);
     var s = params.toString();
-    return '/productos' + (s ? '?' + s : '');
+    return "/productos" + (s ? "?" + s : "");
   }
 
   function cargarProductos() {
@@ -142,7 +151,7 @@
   }
 
   function renderResultado(filtros, total) {
-    var el = $('#resultado-busqueda');
+    var el = $("#resultado-busqueda");
 
     // Se muestra el texto de búsqueda sin interpretarlo como HTML.
     if (filtros && filtros.q) {
@@ -155,7 +164,7 @@
         ' — ' + total + ' producto(s)'
       );
     } else {
-      el.textContent = total + ' producto(s) en el menú';
+      el.textContent = total + " producto(s) en el menú";
     }
   }
 
@@ -173,15 +182,20 @@
   function agregarAlCarrito(productoId) {
     var existente = null;
     for (var i = 0; i < estado.carrito.length; i++) {
-      if (String(estado.carrito[i].id) === String(productoId)) existente = estado.carrito[i];
+      if (String(estado.carrito[i].id) === String(productoId))
+        existente = estado.carrito[i];
     }
     if (existente) {
       existente.cantidad += 1;
     } else {
       estado.carrito.push({
         id: productoId,
-        nombre: window.__productos[productoId] ? window.__productos[productoId].nombre : 'Producto',
-        precio: window.__productos[productoId] ? window.__productos[productoId].precio : 0,
+        nombre: window.__productos[productoId]
+          ? window.__productos[productoId].nombre
+          : "Producto",
+        precio: window.__productos[productoId]
+          ? window.__productos[productoId].precio
+          : 0,
         cantidad: 1,
       });
     }
@@ -205,8 +219,8 @@
   }
 
   function renderCarrito() {
-    var cont = $('#carrito');
-    var lista = $('#resumen-carrito');
+    var cont = $("#carrito");
+    var lista = $("#resumen-carrito");
     var total = 0;
 
     cont.replaceChildren();
@@ -296,13 +310,13 @@
   /* ---------------------------------------------------------------- pedidos */
   function enviarPedido(evento) {
     evento.preventDefault();
-    var feedback = $('#pedido-feedback');
-    feedback.className = 'form-feedback';
-    feedback.textContent = 'Enviando…';
+    var feedback = $("#pedido-feedback");
+    feedback.className = "form-feedback";
+    feedback.textContent = "Enviando…";
 
-    postJSON('/pedidos', {
-      mesa: $('#pedido-mesa').value,
-      cliente: $('#pedido-cliente').value,
+    postJSON("/pedidos", {
+      mesa: $("#pedido-mesa").value,
+      cliente: $("#pedido-cliente").value,
       items: estado.carrito.map(function (item) {
         return { productoId: item.id, cantidad: item.cantidad };
       }),
@@ -373,23 +387,23 @@
 
   function enviarReseña(evento) {
     evento.preventDefault();
-    var feedback = $('#resena-feedback');
-    feedback.className = 'form-feedback';
-    feedback.textContent = 'Publicando…';
+    var feedback = $("#resena-feedback");
+    feedback.className = "form-feedback";
+    feedback.textContent = "Publicando…";
 
-    postJSON('/comentarios', {
-      autor: $('#resena-autor').value,
-      texto: $('#resena-texto').value,
-      calificacion: Number($('#resena-calificacion').value),
+    postJSON("/comentarios", {
+      autor: $("#resena-autor").value,
+      texto: $("#resena-texto").value,
+      calificacion: Number($("#resena-calificacion").value),
     }).then(function (resp) {
       if (!resp.ok) {
         feedback.className = 'form-feedback is-error';
         feedback.textContent = 'No se pudo publicar: ' + (resp.data.error || 'error desconocido');
         return;
       }
-      feedback.className = 'form-feedback is-ok';
-      feedback.textContent = '¡Gracias por tu reseña!';
-      $('#form-resena').reset();
+      feedback.className = "form-feedback is-ok";
+      feedback.textContent = "¡Gracias por tu reseña!";
+      $("#form-resena").reset();
       cargarReseñas();
     });
   }
@@ -399,51 +413,55 @@
     window.__productos = {};
 
     // Filtros
-    document.querySelectorAll('.chip').forEach(function (chip) {
-      chip.addEventListener('click', function () {
-        document.querySelectorAll('.chip').forEach(function (c) { c.classList.remove('is-active'); });
-        chip.classList.add('is-active');
-        estado.tipo = chip.getAttribute('data-tipo');
+    document.querySelectorAll(".chip").forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        document.querySelectorAll(".chip").forEach(function (c) {
+          c.classList.remove("is-active");
+        });
+        chip.classList.add("is-active");
+        estado.tipo = chip.getAttribute("data-tipo");
         cargarProductos();
       });
     });
 
-    $('#filtro-variedad').addEventListener('change', function (e) {
+    $("#filtro-variedad").addEventListener("change", function (e) {
       estado.variedad = e.target.value;
       cargarProductos();
     });
 
     var temporizador = null;
-    $('#filtro-busqueda').addEventListener('input', function (e) {
+    $("#filtro-busqueda").addEventListener("input", function (e) {
       estado.q = e.target.value;
       clearTimeout(temporizador);
       temporizador = setTimeout(cargarProductos, 250);
     });
 
     // Carrito (delegación de eventos)
-    $('#productos-grid').addEventListener('click', function (e) {
-      var btn = e.target.closest('.btn-agregar');
+    $("#productos-grid").addEventListener("click", function (e) {
+      var btn = e.target.closest(".btn-agregar");
       if (!btn) return;
-      agregarAlCarrito(btn.getAttribute('data-id'));
+      agregarAlCarrito(btn.getAttribute("data-id"));
     });
 
-    $('#carrito').addEventListener('click', function (e) {
-      var btn = e.target.closest('button');
+    $("#carrito").addEventListener("click", function (e) {
+      var btn = e.target.closest("button");
       if (!btn) return;
-      var i = Number(btn.getAttribute('data-i'));
-      var accion = btn.getAttribute('data-acc');
-      if (accion === 'mas') cambiarCantidad(i, 1);
-      else if (accion === 'menos') cambiarCantidad(i, -1);
-      else if (accion === 'quitar') quitarDelCarrito(i);
+      var i = Number(btn.getAttribute("data-i"));
+      var accion = btn.getAttribute("data-acc");
+      if (accion === "mas") cambiarCantidad(i, 1);
+      else if (accion === "menos") cambiarCantidad(i, -1);
+      else if (accion === "quitar") quitarDelCarrito(i);
     });
 
-    $('#form-pedido').addEventListener('submit', enviarPedido);
-    $('#form-resena').addEventListener('submit', enviarReseña);
+    $("#form-pedido").addEventListener("submit", enviarPedido);
+    $("#form-resena").addEventListener("submit", enviarReseña);
 
     // Carga inicial
     api(urlCatalogo()).then(function (resp) {
       if (resp.ok) {
-        (resp.data.productos || []).forEach(function (p) { window.__productos[p.id] = p; });
+        (resp.data.productos || []).forEach(function (p) {
+          window.__productos[p.id] = p;
+        });
         renderProductos(resp.data.productos);
         renderResultado(resp.data.filtros, resp.data.total);
       } else {
@@ -454,8 +472,8 @@
     renderCarrito();
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
   } else {
     init();
   }
