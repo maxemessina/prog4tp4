@@ -362,8 +362,6 @@
         cont.replaceChildren(mensaje);
         return;
       }
-      // FALLA (XSS almacenado): el texto de la reseña viene de la base y se
-      // inyecta con innerHTML → se ejecuta en el navegador de cada visitante.
       var reseñas = resp.data.comentarios.map(function (c) {
         var article = document.createElement("article");
         article.className = "review";
