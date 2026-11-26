@@ -487,6 +487,18 @@ describe('Seguridad · Validación de entrada', () => {
     }
   });
 
+  test('se rechazan los items de pedido que no son objetos válidos', async () => {
+    for (const item of [null, 'producto', []]) {
+      const res = await postConToken(agente(), '/api/pedidos', {
+        mesa: '1',
+        cliente: MARCA_PRUEBA,
+        items: [item],
+      });
+      assert.equal(res.status, 400);
+      assert.equal(res.body.error, 'El producto solicitado no es válido.');
+    }
+  });
+
   test('no se aceptan reseñas sin límite de longitud', async () => {
     const res = await postConToken(agente(), '/api/comentarios', {
       autor: MARCA_PRUEBA,
