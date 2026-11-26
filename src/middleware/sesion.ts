@@ -4,8 +4,7 @@
  * -----------------------------------------------------------------------------
  * FALLA — Gestión de sesiones insegura (Autenticación insegura)
  * -----------------------------------------------------------------------------
- * 1. Las sesiones NO expiran nunca.
- * 2. El cierre de sesión sólo borra la cookie del cliente: la sesión sigue
+ * El cierre de sesión sólo borra la cookie del cliente: la sesión sigue
  *    viva en el servidor.
  *
  * Corrección: usar crypto.randomUUID() (o crypto.randomBytes -> hex) para el
@@ -23,6 +22,8 @@ import type { Sesion, UsuarioSesion } from '../tipos';
 
 export const sesiones = new Map<string, Sesion>();
 const claveAnonima = randomBytes(32);
+const TTL_INACTIVIDAD = 30 * 60 * 1000;
+const TTL_ABSOLUTO = 8 * 60 * 60 * 1000;
 
 function tokenAnonimo(valor: string): string {
   return createHmac('sha256', claveAnonima).update(valor).digest('hex');
@@ -47,12 +48,12 @@ export function leerCookies(req: Request): Record<string, string> {
 export function crearSesion(req: Request, res: Response, usuario: UsuarioSesion): string {
   destruirSesion(req);
   const id = randomBytes(32).toString('hex');
+  const ahora = Date.now();
 
-  // FALLA: la sesión nunca expira.
   sesiones.set(id, {
     usuario,
-    creadaEn: Date.now(),
-    expiraEn: null,
+    creadaEn: ahora,
+    expiraEn: ahora + TTL_INACTIVIDAD,
     csrfToken: randomBytes(32).toString('hex'),
   });
 
@@ -61,6 +62,7 @@ export function crearSesion(req: Request, res: Response, usuario: UsuarioSesion)
     httpOnly: true,
     secure: config.nodeEnv === 'production',
     sameSite: 'lax',
+    maxAge: TTL_ABSOLUTO,
   });
 
   return id;
@@ -71,7 +73,18 @@ export function obtenerSesion(req: Request): Sesion | null {
   const cookies = leerCookies(req);
   const id = cookies.sid;
   if (!id) return null;
-  return sesiones.get(id) || null;
+  const sesion = sesiones.get(id);
+  if (!sesion) return null;
+
+  const ahora = Date.now();
+  const limiteAbsoluto = sesion.creadaEn + TTL_ABSOLUTO;
+  if (sesion.expiraEn === null || ahora >= sesion.expiraEn || ahora >= limiteAbsoluto) {
+    sesiones.delete(id);
+    return null;
+  }
+
+  sesion.expiraEn = Math.min(ahora + TTL_INACTIVIDAD, limiteAbsoluto);
+  return sesion;
 }
 
 export function entregarTokenCsrf(req: Request, res: Response): void {
