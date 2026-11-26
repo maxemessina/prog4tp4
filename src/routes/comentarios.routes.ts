@@ -19,14 +19,24 @@ router.get('/', async (req, res, next) => {
 /**
  * POST /api/comentarios
  *
- * FALLAS: sin validación de longitud/rango y sin sanitización (XSS almacenado).
+ * La longitud del autor y del texto y el rango de la calificación se validan
+ * antes de guardar la reseña.
  */
 router.post('/', verificarCsrf, async (req, res, next) => {
   try {
     const { autor, texto, calificacion } = req.body || {};
+    if (typeof autor !== 'string' || autor.trim().length < 2 || autor.trim().length > 40) {
+      return res.status(400).json({ error: 'El autor debe tener entre 2 y 40 caracteres.' });
+    }
+    if (typeof texto !== 'string' || texto.trim().length < 3 || texto.trim().length > 280) {
+      return res.status(400).json({ error: 'La reseña debe tener entre 3 y 280 caracteres.' });
+    }
+    if (!Number.isInteger(calificacion) || calificacion < 1 || calificacion > 5) {
+      return res.status(400).json({ error: 'La calificación debe ser un entero entre 1 y 5.' });
+    }
     const comentario = await comentarios.crear({
-      autor,
-      texto,
+      autor: autor.trim(),
+      texto: texto.trim(),
       calificacion,
     });
     res.status(201).json(comentario);
