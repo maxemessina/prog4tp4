@@ -1,4 +1,6 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
+import { createHash } from "crypto";
 import * as usuarios from "../services/usuarios.service";
 import {
   crearSesion,
@@ -8,6 +10,28 @@ import {
 
 const router = express.Router();
 
+const limitePorIp = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiados intentos. Intentá nuevamente más tarde." },
+});
+
+const limitePorCuenta = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const username = typeof req.body?.username === "string" ? req.body.username : "";
+    return createHash("sha256").update(username).digest("hex");
+  },
+  message: { error: "Demasiados intentos. Intentá nuevamente más tarde." },
+});
+
 /**
  * Inicio de sesión.
  *
@@ -16,10 +40,9 @@ const router = express.Router();
  *  - Contraseñas almacenadas en texto plano.
  *  - Mensajes de error que distinguen "usuario inexistente" de "contraseña
  *    incorrecta" → enumeración de usuarios.
- *  - Sin rate limiting ni bloqueo: fuerza bruta ilimitada.
  *  - El identificador de sesión no se regenera (fijación de sesión).
  */
-router.post("/login", async (req, res, next) => {
+router.post("/login", limitePorIp, limitePorCuenta, async (req, res, next) => {
   try {
     const { username, password } = req.body || {};
 
